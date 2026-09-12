@@ -52,7 +52,11 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
 
     def validate_runtime(self) -> None:
-        media_values = (self.cloudinary_cloud_name, self.cloudinary_api_key, self.cloudinary_api_secret)
+        media_values = (
+            self.cloudinary_cloud_name,
+            self.cloudinary_api_key,
+            self.cloudinary_api_secret,
+        )
         if any(media_values) and not all(media_values):
             raise ValueError("Cloudinary provider configuration is incomplete.")
         if self.environment not in {"development", "test", "staging", "production"}:

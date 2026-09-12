@@ -252,13 +252,17 @@ class Curriculum(AcademicTaxonomyMixin, UUIDTimestampMixin, Base):
 
 class Standard(AcademicTaxonomyMixin, UUIDTimestampMixin, Base):
     __tablename__ = "standards"
-    curriculum_id: Mapped[str] = mapped_column(ForeignKey("curricula.id", ondelete="RESTRICT"), index=True)
+    curriculum_id: Mapped[str] = mapped_column(
+        ForeignKey("curricula.id", ondelete="RESTRICT"), index=True
+    )
     __table_args__ = (UniqueConstraint("curriculum_id", "code"),)
 
 
 class Stream(AcademicTaxonomyMixin, UUIDTimestampMixin, Base):
     __tablename__ = "streams"
-    standard_id: Mapped[str] = mapped_column(ForeignKey("standards.id", ondelete="RESTRICT"), index=True)
+    standard_id: Mapped[str] = mapped_column(
+        ForeignKey("standards.id", ondelete="RESTRICT"), index=True
+    )
     __table_args__ = (UniqueConstraint("standard_id", "code"),)
 
 
@@ -270,9 +274,13 @@ class Subject(AcademicTaxonomyMixin, UUIDTimestampMixin, Base):
 class StudentAcademicProfile(UUIDTimestampMixin, Base):
     __tablename__ = "student_academic_profiles"
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
-    active_curriculum_id: Mapped[str] = mapped_column(ForeignKey("curricula.id", ondelete="RESTRICT"))
+    active_curriculum_id: Mapped[str] = mapped_column(
+        ForeignKey("curricula.id", ondelete="RESTRICT")
+    )
     active_standard_id: Mapped[str] = mapped_column(ForeignKey("standards.id", ondelete="RESTRICT"))
-    active_stream_id: Mapped[str | None] = mapped_column(ForeignKey("streams.id", ondelete="RESTRICT"), nullable=True)
+    active_stream_id: Mapped[str | None] = mapped_column(
+        ForeignKey("streams.id", ondelete="RESTRICT"), nullable=True
+    )
     profile_version: Mapped[int] = mapped_column(Integer, default=1)
 
 
@@ -283,7 +291,9 @@ class LessonContentItem(UUIDTimestampMixin, Base):
     position: Mapped[int] = mapped_column(Integer)
     title: Mapped[str] = mapped_column(String(200), default="")
     reference_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    assessment_id: Mapped[str | None] = mapped_column(ForeignKey("assessments.id", ondelete="RESTRICT"), nullable=True)
+    assessment_id: Mapped[str | None] = mapped_column(
+        ForeignKey("assessments.id", ondelete="RESTRICT"), nullable=True
+    )
     body: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[Lifecycle] = mapped_column(Enum(Lifecycle), default=Lifecycle.draft)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
@@ -291,7 +301,9 @@ class LessonContentItem(UUIDTimestampMixin, Base):
         UniqueConstraint("lesson_id", "position"),
         CheckConstraint("content_type IN ('video', 'note', 'quiz', 'resource')"),
         CheckConstraint("position > 0"),
-        CheckConstraint("(content_type = 'quiz' AND assessment_id IS NOT NULL) OR (content_type <> 'quiz' AND assessment_id IS NULL)"),
+        CheckConstraint(
+            "(content_type = 'quiz' AND assessment_id IS NOT NULL) OR (content_type <> 'quiz' AND assessment_id IS NULL)"
+        ),
     )
 
 
@@ -326,10 +338,18 @@ class CourseCategory(Base):
 
 class Course(UUIDTimestampMixin, Base):
     __tablename__ = "courses"
-    curriculum_id: Mapped[str | None] = mapped_column(ForeignKey("curricula.id", ondelete="RESTRICT"), nullable=True)
-    standard_id: Mapped[str | None] = mapped_column(ForeignKey("standards.id", ondelete="RESTRICT"), nullable=True)
-    stream_id: Mapped[str | None] = mapped_column(ForeignKey("streams.id", ondelete="RESTRICT"), nullable=True)
-    subject_id: Mapped[str | None] = mapped_column(ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=True)
+    curriculum_id: Mapped[str | None] = mapped_column(
+        ForeignKey("curricula.id", ondelete="RESTRICT"), nullable=True
+    )
+    standard_id: Mapped[str | None] = mapped_column(
+        ForeignKey("standards.id", ondelete="RESTRICT"), nullable=True
+    )
+    stream_id: Mapped[str | None] = mapped_column(
+        ForeignKey("streams.id", ondelete="RESTRICT"), nullable=True
+    )
+    subject_id: Mapped[str | None] = mapped_column(
+        ForeignKey("subjects.id", ondelete="RESTRICT"), nullable=True
+    )
     title: Mapped[str] = mapped_column(String(200), index=True)
     subtitle: Mapped[str] = mapped_column(String(300), default="")
     description: Mapped[str] = mapped_column(Text, default="")
@@ -352,7 +372,14 @@ class Course(UUIDTimestampMixin, Base):
     __table_args__ = (
         CheckConstraint("duration_seconds >= 0"),
         Index("ix_courses_catalog", "status", "published_at", "id"),
-        Index("ix_courses_academic_catalog", "curriculum_id", "standard_id", "stream_id", "subject_id", "status"),
+        Index(
+            "ix_courses_academic_catalog",
+            "curriculum_id",
+            "standard_id",
+            "stream_id",
+            "subject_id",
+            "status",
+        ),
     )
 
 
@@ -461,7 +488,9 @@ class MediaAsset(UUIDTimestampMixin, Base):
     provider: Mapped[str | None] = mapped_column(String(30), nullable=True)
     provider_asset_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict)
-    content_item_id: Mapped[str | None] = mapped_column(ForeignKey("lesson_content_items.id", ondelete="RESTRICT"), nullable=True, index=True)
+    content_item_id: Mapped[str | None] = mapped_column(
+        ForeignKey("lesson_content_items.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
     lesson_id: Mapped[str] = mapped_column(ForeignKey("lessons.id", ondelete="CASCADE"), index=True)
     asset_id: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     kind: Mapped[str] = mapped_column(String(20))
@@ -659,7 +688,9 @@ class CertificateRevocation(UUIDTimestampMixin, Base):
 
 
 class AuditEvent(Base):
-    __table_args__ = (Index("ix_audit_events_subject_occurred", "subject_type", "occurred_at", "id"),)
+    __table_args__ = (
+        Index("ix_audit_events_subject_occurred", "subject_type", "occurred_at", "id"),
+    )
     __tablename__ = "audit_events"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     actor_id: Mapped[str | None] = mapped_column(ForeignKey("users.id"), index=True)

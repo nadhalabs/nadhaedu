@@ -32,7 +32,16 @@ from .schemas import *
 from .security import access_token, hash_password, random_token, token_hash, verify_password
 from .services import *
 from .dependencies import OptionalPrincipal
-from .academic import scope_courses, profile_for, classification_json, validate_selection, lesson_items, guard_course_history, required_quizzes_passed, ensure_asset_published
+from .academic import (
+    scope_courses,
+    profile_for,
+    classification_json,
+    validate_selection,
+    lesson_items,
+    guard_course_history,
+    required_quizzes_passed,
+    ensure_asset_published,
+)
 
 router = APIRouter()
 
@@ -190,9 +199,21 @@ async def courses(
 @router.get("/categories")
 async def categories(db: DB, user: OptionalPrincipal):
     if await profile_for(db, user):
-        query = await scope_courses(db, select(Course.subject_id).where(Course.status == Lifecycle.published), user)
-        rows = (await db.scalars(select(Subject).where(Subject.id.in_(query), Subject.is_active.is_(True)).order_by(Subject.sort_order, Subject.name))).all()
-        return {"items": [{"id": x.id, "name": x.name, "iconName": "school", "isSubject": True} for x in rows]}
+        query = await scope_courses(
+            db, select(Course.subject_id).where(Course.status == Lifecycle.published), user
+        )
+        rows = (
+            await db.scalars(
+                select(Subject)
+                .where(Subject.id.in_(query), Subject.is_active.is_(True))
+                .order_by(Subject.sort_order, Subject.name)
+            )
+        ).all()
+        return {
+            "items": [
+                {"id": x.id, "name": x.name, "iconName": "school", "isSubject": True} for x in rows
+            ]
+        }
     rows = (await db.scalars(select(Category).order_by(Category.name).limit(200))).all()
     return {"items": [{"id": x.id, "name": x.name, "iconName": x.icon_name} for x in rows]}
 
@@ -222,7 +243,13 @@ async def course_detail(course_id: str, db: DB):
     )
     lessons_by_module: dict[str, list[Lesson]] = {}
     content_items = await lesson_items(db, [lesson.id for lesson in lessons])
-    item_lesson_ids = set(await db.scalars(select(LessonContentItem.lesson_id).where(LessonContentItem.lesson_id.in_([lesson.id for lesson in lessons]))))
+    item_lesson_ids = set(
+        await db.scalars(
+            select(LessonContentItem.lesson_id).where(
+                LessonContentItem.lesson_id.in_([lesson.id for lesson in lessons])
+            )
+        )
+    )
     for lesson in lessons:
         lessons_by_module.setdefault(lesson.module_id, []).append(lesson)
     out = []
@@ -248,8 +275,11 @@ async def course_detail(course_id: str, db: DB):
                             else "blockCaptureWhereSupported"
                         ),
                         "content": {"type": l.content_type, "referenceId": l.content_ref},
-                        "contentItems": [{**item, "body": None} for item in content_items.get(l.id, [])],
-                        "hasContentItems": l.id in item_lesson_ids or l.content_ref.startswith("lesson-shell:"),
+                        "contentItems": [
+                            {**item, "body": None} for item in content_items.get(l.id, [])
+                        ],
+                        "hasContentItems": l.id in item_lesson_ids
+                        or l.content_ref.startswith("lesson-shell:"),
                     }
                     for l in module_lessons
                 ],
@@ -269,7 +299,11 @@ async def course_detail(course_id: str, db: DB):
 async def courses_by_ids(body: CourseIds, db: DB, user: OptionalPrincipal):
     rows = (
         await db.scalars(
-            await scope_courses(db, select(Course).where(Course.id.in_(body.ids), Course.status == Lifecycle.published), user)
+            await scope_courses(
+                db,
+                select(Course).where(Course.id.in_(body.ids), Course.status == Lifecycle.published),
+                user,
+            )
         )
     ).all()
     by_id = {x.id: x for x in rows}
@@ -290,8 +324,16 @@ async def home(db: DB, user: OptionalPrincipal):
     categories = (await db.scalars(select(Category).order_by(Category.name).limit(12))).all()
     profile = await profile_for(db, user)
     if profile:
-        query = await scope_courses(db, select(Course.subject_id).where(Course.status == Lifecycle.published), user)
-        categories = (await db.scalars(select(Subject).where(Subject.id.in_(query), Subject.is_active.is_(True)).order_by(Subject.sort_order, Subject.name))).all()
+        query = await scope_courses(
+            db, select(Course.subject_id).where(Course.status == Lifecycle.published), user
+        )
+        categories = (
+            await db.scalars(
+                select(Subject)
+                .where(Subject.id.in_(query), Subject.is_active.is_(True))
+                .order_by(Subject.sort_order, Subject.name)
+            )
+        ).all()
     summaries = await course_summaries(db, courses)
     return {
         "sections": [
@@ -312,7 +354,13 @@ async def home(db: DB, user: OptionalPrincipal):
                 "kind": "popularCategories",
                 "title": "Subjects" if profile else "Popular categories",
                 "items": [
-                    {"id": x.id, "name": x.name, "iconName": getattr(x, "icon_name", "school"), "isSubject": bool(profile)} for x in categories
+                    {
+                        "id": x.id,
+                        "name": x.name,
+                        "iconName": getattr(x, "icon_name", "school"),
+                        "isSubject": bool(profile),
+                    }
+                    for x in categories
                 ],
             },
         ],
@@ -461,12 +509,28 @@ async def sync_progress(course_id: str, body: ProgressSync, user: Principal, db:
     for mutation in body.mutations:
         if mutation.lesson_id not in lesson_ids:
             raise APIError(422, "INVALID_RESOURCE", "Lesson does not belong to the course.")
-        if lesson_types[mutation.lesson_id] == "quiz" and mutation.kind == "completion" and not await db.scalar(select(LessonContentItem.id).where(LessonContentItem.lesson_id == mutation.lesson_id).limit(1)):
+        if (
+            lesson_types[mutation.lesson_id] == "quiz"
+            and mutation.kind == "completion"
+            and not await db.scalar(
+                select(LessonContentItem.id)
+                .where(LessonContentItem.lesson_id == mutation.lesson_id)
+                .limit(1)
+            )
+        ):
             raise APIError(
                 403, "SERVER_COMPLETION_REQUIRED", "Complete the assessment to finish this lesson."
             )
-        if mutation.kind == "completion" and mutation.completed and not await required_quizzes_passed(db, user.id, mutation.lesson_id):
-            raise APIError(403, "SERVER_COMPLETION_REQUIRED", "Watch required videos and pass every quiz before completing this lesson.")
+        if (
+            mutation.kind == "completion"
+            and mutation.completed
+            and not await required_quizzes_passed(db, user.id, mutation.lesson_id)
+        ):
+            raise APIError(
+                403,
+                "SERVER_COMPLETION_REQUIRED",
+                "Watch required videos and pass every quiz before completing this lesson.",
+            )
         digest = fingerprint(mutation.model_dump(mode="json"))
         seen = seen_mutations.get(mutation.id)
         if seen:
@@ -484,7 +548,14 @@ async def sync_progress(course_id: str, body: ProgressSync, user: Principal, db:
             .with_for_update()
         )
         if not row:
-            row = LessonProgress(learner_id=user.id, lesson_id=mutation.lesson_id, duration_seconds=0, position_seconds=0, completed=False, revision=0)
+            row = LessonProgress(
+                learner_id=user.id,
+                lesson_id=mutation.lesson_id,
+                duration_seconds=0,
+                position_seconds=0,
+                completed=False,
+                revision=0,
+            )
             db.add(row)
         row.duration_seconds = max(row.duration_seconds, mutation.duration_seconds)
         row.position_seconds = min(
@@ -516,8 +587,17 @@ async def playback(asset_id: str, user: Principal, db: DB):
         raise APIError(404, "NOT_FOUND", "Playback resource not found.")
     await ensure_asset_published(db, asset)
     lesson = await db.get(Lesson, asset.lesson_id)
-    linked_item = await db.get(LessonContentItem, asset.content_item_id) if asset.content_item_id else None
-    if not lesson or (lesson.content_ref != asset.asset_id and not (linked_item and linked_item.lesson_id == lesson.id and linked_item.status == Lifecycle.published)):
+    linked_item = (
+        await db.get(LessonContentItem, asset.content_item_id) if asset.content_item_id else None
+    )
+    if not lesson or (
+        lesson.content_ref != asset.asset_id
+        and not (
+            linked_item
+            and linked_item.lesson_id == lesson.id
+            and linked_item.status == Lifecycle.published
+        )
+    ):
         raise APIError(404, "NOT_FOUND", "Playback resource not found.")
     decision = await resolve_access(db, user.id, ResourceType.lesson, lesson.id)
     if not decision["allowed"]:
@@ -528,9 +608,15 @@ async def playback(asset_id: str, user: Principal, db: DB):
         raise APIError(503, "PROVIDER_UNAVAILABLE", "Media provider is unavailable.")
     if asset.provider == "cloudinary":
         from .media_provider import delivery_url
-        return {"streamUrl": delivery_url(asset), "kind": "mp4", "subtitles": [],
-                "posterUrl": delivery_url(asset, poster=True), "watchProgress": True,
-                "renewAfterSeconds": max(30, get_settings().media_token_minutes * 60 - 90)}
+
+        return {
+            "streamUrl": delivery_url(asset),
+            "kind": "mp4",
+            "subtitles": [],
+            "posterUrl": delivery_url(asset, poster=True),
+            "watchProgress": True,
+            "renewAfterSeconds": max(30, get_settings().media_token_minutes * 60 - 90),
+        }
     module = await db.get(CourseModule, lesson.module_id)
     token, expires = issue_media_token(
         settings=get_settings(),
@@ -602,14 +688,32 @@ async def _download_auth(
     requested_type = resource_type_str
     selected_asset = None
     if resource_type_str in {"video", "document", "resource"}:
-        selected_asset = await db.scalar(select(MediaAsset).where(MediaAsset.asset_id == resource_id, MediaAsset.status == "active"))
+        selected_asset = await db.scalar(
+            select(MediaAsset).where(
+                MediaAsset.asset_id == resource_id, MediaAsset.status == "active"
+            )
+        )
         if not selected_asset:
             raise APIError(404, "NOT_FOUND", "Registered download resource not found.")
         await ensure_asset_published(db, selected_asset)
         if resource_type_str == "video" and selected_asset.kind == "hls":
-            selected_asset = await db.scalar(select(MediaAsset).where(MediaAsset.content_item_id == selected_asset.content_item_id, MediaAsset.kind == "download", MediaAsset.status == "active")) if selected_asset.content_item_id else None
+            selected_asset = (
+                await db.scalar(
+                    select(MediaAsset).where(
+                        MediaAsset.content_item_id == selected_asset.content_item_id,
+                        MediaAsset.kind == "download",
+                        MediaAsset.status == "active",
+                    )
+                )
+                if selected_asset.content_item_id
+                else None
+            )
         if not selected_asset or selected_asset.kind != "download":
-            raise APIError(503, "DOWNLOAD_ASSET_UNVERIFIED", "A verified downloadable file is required; streaming playlists cannot be downloaded as a video file.")
+            raise APIError(
+                503,
+                "DOWNLOAD_ASSET_UNVERIFIED",
+                "A verified downloadable file is required; streaming playlists cannot be downloaded as a video file.",
+            )
         await ensure_asset_published(db, selected_asset)
         resource_id = selected_asset.lesson_id
         resource_type_str = "lesson"
@@ -785,7 +889,9 @@ async def _download_auth(
         "checksumSha256": checksum,
         "assetVersion": asset_version,
         "quality": quality,
-        "contentType": "application/octet-stream" if requested_type in {"document", "resource"} else "video/mp4",
+        "contentType": "application/octet-stream"
+        if requested_type in {"document", "resource"}
+        else "video/mp4",
         "protectionPolicy": protection_policy,
         "subtitles": subtitles,
         "isDownloadable": True,
@@ -802,8 +908,19 @@ async def download_revalidate(body: DownloadRevalidateIn, user: Principal, db: D
         ).all()
     }
     # Device records use stable asset IDs. Resolve them without academic filtering.
-    media_rows = list(await db.scalars(select(MediaAsset).where(MediaAsset.asset_id.in_(body.resource_ids), MediaAsset.status == "active")))
-    media_lessons = {lesson.id: lesson for lesson in await db.scalars(select(Lesson).where(Lesson.id.in_([asset.lesson_id for asset in media_rows])))}
+    media_rows = list(
+        await db.scalars(
+            select(MediaAsset).where(
+                MediaAsset.asset_id.in_(body.resource_ids), MediaAsset.status == "active"
+            )
+        )
+    )
+    media_lessons = {
+        lesson.id: lesson
+        for lesson in await db.scalars(
+            select(Lesson).where(Lesson.id.in_([asset.lesson_id for asset in media_rows]))
+        )
+    }
     for asset in media_rows:
         if asset.lesson_id in media_lessons:
             lessons[asset.asset_id] = media_lessons[asset.lesson_id]
@@ -2283,7 +2400,12 @@ async def admin_courses(
     page_size: int = Query(20, ge=1, le=100, alias="pageSize"),
 ):
     q = select(Course)
-    for column, value in [(Course.curriculum_id, curriculum_id), (Course.standard_id, standard_id), (Course.stream_id, stream_id), (Course.subject_id, subject_id)]:
+    for column, value in [
+        (Course.curriculum_id, curriculum_id),
+        (Course.standard_id, standard_id),
+        (Course.stream_id, stream_id),
+        (Course.subject_id, subject_id),
+    ]:
         if value:
             q = q.where(column == value)
     if status:
@@ -2347,7 +2469,7 @@ async def admin_courses(
             "id": c.id,
             "title": c.title,
             "subtitle": c.subtitle,
-        "coverReference": c.cover_reference,
+            "coverReference": c.cover_reference,
             "level": c.level,
             "policyKind": c.policy_kind.value,
             "status": c.status.value,
@@ -2599,10 +2721,19 @@ async def admin_create_course(
     user: ContentManagerPrincipal,
     db: DB,
 ):
-    await validate_selection(db, body.curriculum_id, body.standard_id, body.stream_id, subject_id=body.subject_id, allow_empty=True)
+    await validate_selection(
+        db,
+        body.curriculum_id,
+        body.standard_id,
+        body.stream_id,
+        subject_id=body.subject_id,
+        allow_empty=True,
+    )
     course = Course(
-        curriculum_id=body.curriculum_id, standard_id=body.standard_id,
-        stream_id=body.stream_id, subject_id=body.subject_id,
+        curriculum_id=body.curriculum_id,
+        standard_id=body.standard_id,
+        stream_id=body.stream_id,
+        subject_id=body.subject_id,
         title=body.title.strip(),
         subtitle=body.subtitle.strip(),
         description=body.description.strip(),
@@ -2667,8 +2798,18 @@ async def admin_update_course(
 
     academic_fields = {"curriculum_id", "standard_id", "stream_id", "subject_id"}
     if academic_fields & body.model_fields_set:
-        values = {key: getattr(body, key) if key in body.model_fields_set else getattr(course, key) for key in academic_fields}
-        await validate_selection(db, values["curriculum_id"], values["standard_id"], values["stream_id"], subject_id=values["subject_id"], allow_empty=True)
+        values = {
+            key: getattr(body, key) if key in body.model_fields_set else getattr(course, key)
+            for key in academic_fields
+        }
+        await validate_selection(
+            db,
+            values["curriculum_id"],
+            values["standard_id"],
+            values["stream_id"],
+            subject_id=values["subject_id"],
+            allow_empty=True,
+        )
         for key, value in values.items():
             setattr(course, key, value)
 
@@ -3596,8 +3737,12 @@ async def admin_delete_assessment(
     deleted_title = a.title
     course_id = a.course_id
     await guard_course_history(db, course_id)
-    if await db.scalar(select(LessonContentItem.id).where(LessonContentItem.assessment_id == a.id).limit(1)):
-        raise APIError(409, "ASSESSMENT_IN_USE", "Disable this assessment instead of deleting linked content.")
+    if await db.scalar(
+        select(LessonContentItem.id).where(LessonContentItem.assessment_id == a.id).limit(1)
+    ):
+        raise APIError(
+            409, "ASSESSMENT_IN_USE", "Disable this assessment instead of deleting linked content."
+        )
     await db.delete(a)
 
     log_audit_event(

@@ -183,7 +183,9 @@ async def test_failed_upload_has_no_record_and_cover_uses_offering(
     assert result.status_code == 200
     course = (await client.get("/api/v1/courses/a")).json()
     assert course["summary"]["coverReference"] == result.json()["coverReference"]
-    assert (await client.get("/api/v1/admin/courses/a", headers=headers["admin"])).json()["coverReference"] == result.json()["coverReference"]
+    assert (await client.get("/api/v1/admin/courses/a", headers=headers["admin"])).json()[
+        "coverReference"
+    ] == result.json()["coverReference"]
     assert (await client.get("/api/v1/courses/b")).json()["summary"]["coverReference"] is None
 
 

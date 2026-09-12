@@ -492,21 +492,52 @@ async def required_quizzes_passed(db, learner_id, lesson_id):
         )
     )
     from .models import VideoWatchProgress
-    videos = list(await db.scalars(select(MediaAsset).join(LessonContentItem, MediaAsset.content_item_id == LessonContentItem.id).where(
-        LessonContentItem.lesson_id == lesson_id, LessonContentItem.status == Lifecycle.published,
-        LessonContentItem.content_type == "video", MediaAsset.asset_id == LessonContentItem.reference_id,
-        MediaAsset.kind == "hls")))
-    required_video_ids = list(await db.scalars(select(LessonContentItem.id).where(
-        LessonContentItem.lesson_id == lesson_id, LessonContentItem.status == Lifecycle.published,
-        LessonContentItem.content_type == "video")))
+
+    videos = list(
+        await db.scalars(
+            select(MediaAsset)
+            .join(LessonContentItem, MediaAsset.content_item_id == LessonContentItem.id)
+            .where(
+                LessonContentItem.lesson_id == lesson_id,
+                LessonContentItem.status == Lifecycle.published,
+                LessonContentItem.content_type == "video",
+                MediaAsset.asset_id == LessonContentItem.reference_id,
+                MediaAsset.kind == "hls",
+            )
+        )
+    )
+    required_video_ids = list(
+        await db.scalars(
+            select(LessonContentItem.id).where(
+                LessonContentItem.lesson_id == lesson_id,
+                LessonContentItem.status == Lifecycle.published,
+                LessonContentItem.content_type == "video",
+            )
+        )
+    )
     if len(videos) != len(required_video_ids):
         return False
-    if not videos and not await db.scalar(select(LessonContentItem.id).where(LessonContentItem.lesson_id == lesson_id).limit(1)):
+    if not videos and not await db.scalar(
+        select(LessonContentItem.id).where(LessonContentItem.lesson_id == lesson_id).limit(1)
+    ):
         lesson = await db.get(Lesson, lesson_id)
         if lesson and lesson.content_type == "video":
-            videos = list(await db.scalars(select(MediaAsset).where(MediaAsset.lesson_id == lesson_id, MediaAsset.asset_id == lesson.content_ref, MediaAsset.kind == "hls")))
+            videos = list(
+                await db.scalars(
+                    select(MediaAsset).where(
+                        MediaAsset.lesson_id == lesson_id,
+                        MediaAsset.asset_id == lesson.content_ref,
+                        MediaAsset.kind == "hls",
+                    )
+                )
+            )
     for asset in videos:
-        if not await db.scalar(select(VideoWatchProgress.completed).where(VideoWatchProgress.media_asset_id == asset.id, VideoWatchProgress.learner_id == learner_id)):
+        if not await db.scalar(
+            select(VideoWatchProgress.completed).where(
+                VideoWatchProgress.media_asset_id == asset.id,
+                VideoWatchProgress.learner_id == learner_id,
+            )
+        ):
             return False
     return required <= passed
 
@@ -514,7 +545,15 @@ async def required_quizzes_passed(db, learner_id, lesson_id):
 async def ensure_asset_published(db, asset):
     if asset.content_item_id:
         item = await db.get(LessonContentItem, asset.content_item_id)
-        if not item or item.lesson_id != asset.lesson_id or item.status != Lifecycle.published or (asset.kind == "hls" and (item.content_type != "video" or item.reference_id != asset.asset_id)):
+        if (
+            not item
+            or item.lesson_id != asset.lesson_id
+            or item.status != Lifecycle.published
+            or (
+                asset.kind == "hls"
+                and (item.content_type != "video" or item.reference_id != asset.asset_id)
+            )
+        ):
             raise APIError(404, "NOT_FOUND", "Media content is unavailable.")
 
 
@@ -546,6 +585,7 @@ async def reorder_content(
 @router.get("/admin/lessons/{lesson_id}/media-assets")
 async def lesson_media(lesson_id: str, user: CmsPrincipal, db: DB):
     from .media_provider import delivery_url
+
     return {
         "items": [
             {

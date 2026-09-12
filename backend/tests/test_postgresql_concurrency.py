@@ -284,15 +284,20 @@ async def test_duplicate_payment_and_webhook_are_serialized(factory):
 async def test_refresh_token_is_consumed_once_under_concurrency(factory):
     from app.api import create_session, refresh
     from app.schemas import Refresh
+
     user_id, _, _ = await seed(factory)
     async with factory() as db:
         session = await create_session(db, await db.get(User, user_id))
+
     async def rotate():
         async with factory() as db:
             return await refresh(Refresh(refreshToken=session["refreshToken"]), db)
+
     results = await asyncio.gather(rotate(), rotate(), return_exceptions=True)
     assert sum(isinstance(result, dict) for result in results) == 1, results
-    assert [result.code for result in results if isinstance(result, APIError)] == ["SESSION_EXPIRED"]
+    assert [result.code for result in results if isinstance(result, APIError)] == [
+        "SESSION_EXPIRED"
+    ]
 
 
 @pytest.mark.asyncio
@@ -301,19 +306,37 @@ async def test_reset_token_is_consumed_once_and_invalidates_sibling_codes(factor
     from app.models import PasswordResetCode
     from app.schemas import ResetConfirm
     from app.security import token_hash
+
     user_id, _, _ = await seed(factory)
     async with factory() as db:
         user = await db.get(User, user_id)
         email = user.email
         for raw in ("first-token", "second-token"):
-            db.add(PasswordResetCode(user_id=user_id, code_hash=token_hash(raw), expires_at=datetime.now(UTC) + timedelta(minutes=15)))
+            db.add(
+                PasswordResetCode(
+                    user_id=user_id,
+                    code_hash=token_hash(raw),
+                    expires_at=datetime.now(UTC) + timedelta(minutes=15),
+                )
+            )
         await db.commit()
+
     async def reset(raw):
         async with factory() as db:
-            return await password_reset_confirm(ResetConfirm(email=email, verificationCode=raw, newPassword="new-correct-horse-battery"), db)
-    results = await asyncio.gather(reset("first-token"), reset("first-token"), return_exceptions=True)
+            return await password_reset_confirm(
+                ResetConfirm(
+                    email=email, verificationCode=raw, newPassword="new-correct-horse-battery"
+                ),
+                db,
+            )
+
+    results = await asyncio.gather(
+        reset("first-token"), reset("first-token"), return_exceptions=True
+    )
     assert sum(isinstance(result, dict) for result in results) == 1, results
-    assert [result.code for result in results if isinstance(result, APIError)] == ["EXPIRED_RESOURCE"]
+    assert [result.code for result in results if isinstance(result, APIError)] == [
+        "EXPIRED_RESOURCE"
+    ]
     with pytest.raises(APIError):
         await reset("second-token")
 
@@ -323,40 +346,87 @@ async def test_duplicate_progress_in_batch_and_parallel_requests_commit_once(fac
     from app.api import sync_progress
     from app.models import CourseModule, Enrollment, Lesson, LessonProgress
     from app.schemas import ProgressSync
+
     user_id, course_id, _ = await seed(factory)
     async with factory() as db:
         module = CourseModule(course_id=course_id, title="Module", position=0)
         db.add(module)
         await db.flush()
-        lesson = Lesson(module_id=module.id, title="Read", position=0, content_type="article", content_ref=uuid.uuid4().hex)
+        lesson = Lesson(
+            module_id=module.id,
+            title="Read",
+            position=0,
+            content_type="article",
+            content_ref=uuid.uuid4().hex,
+        )
         db.add_all([lesson, Enrollment(learner_id=user_id, course_id=course_id)])
         await db.commit()
         lesson_id = lesson.id
-    mutation = dict(id=uuid.uuid4().hex, lessonId=lesson_id, kind="completion", positionSeconds=60, durationSeconds=60,
-        completed=True, occurredAt=datetime.now(UTC).isoformat(), baseRevision=0)
+    mutation = dict(
+        id=uuid.uuid4().hex,
+        lessonId=lesson_id,
+        kind="completion",
+        positionSeconds=60,
+        durationSeconds=60,
+        completed=True,
+        occurredAt=datetime.now(UTC).isoformat(),
+        baseRevision=0,
+    )
     body = ProgressSync(mutations=[mutation, mutation])
+
     async def save():
         async with factory() as db:
             return await sync_progress(course_id, body, await db.get(User, user_id), db)
+
     first, second = await asyncio.gather(save(), save())
     assert first["progress"]["lessons"][lesson_id]["completed"] is True
     assert first["progress"]["serverRevision"] == second["progress"]["serverRevision"] == 1
     async with factory() as db:
-        assert await db.scalar(select(func.count()).select_from(LessonProgress).where(LessonProgress.learner_id == user_id)) == 1
+        assert (
+            await db.scalar(
+                select(func.count())
+                .select_from(LessonProgress)
+                .where(LessonProgress.learner_id == user_id)
+            )
+            == 1
+        )
 
 
 @pytest.mark.asyncio
 async def test_duplicate_submission_replays_result_and_server_completes_quiz(factory):
     from app.api import submit, sync_progress
-    from app.models import AssessmentQuestion, CourseModule, Enrollment, Lesson, LessonProgress, QuestionType
+    from app.models import (
+        AssessmentQuestion,
+        CourseModule,
+        Enrollment,
+        Lesson,
+        LessonProgress,
+        QuestionType,
+    )
     from app.schemas import ProgressSync, Submission
+
     user_id, course_id, assessment_id = await seed(factory)
     async with factory() as db:
         module = CourseModule(course_id=course_id, title="Module", position=0)
         db.add(module)
         await db.flush()
-        lesson = Lesson(module_id=module.id, title="Knowledge check", position=0, duration_seconds=60, content_type="quiz", content_ref=assessment_id)
-        question = AssessmentQuestion(assessment_id=assessment_id, position=0, type=QuestionType.true_false, prompt="Ready?", points=1, grading_data={"correctValue": True}, explanation="Yes")
+        lesson = Lesson(
+            module_id=module.id,
+            title="Knowledge check",
+            position=0,
+            duration_seconds=60,
+            content_type="quiz",
+            content_ref=assessment_id,
+        )
+        question = AssessmentQuestion(
+            assessment_id=assessment_id,
+            position=0,
+            type=QuestionType.true_false,
+            prompt="Ready?",
+            points=1,
+            grading_data={"correctValue": True},
+            explanation="Yes",
+        )
         db.add_all([lesson, question, Enrollment(learner_id=user_id, course_id=course_id)])
         await db.commit()
         lesson_id, question_id = lesson.id, question.id
@@ -364,19 +434,57 @@ async def test_duplicate_submission_replays_result_and_server_completes_quiz(fac
         attempt_id = attempt.id
     async with factory() as db:
         with pytest.raises(APIError) as denied:
-            await sync_progress(course_id, ProgressSync(mutations=[dict(id=uuid.uuid4().hex, lessonId=lesson_id, kind="completion", positionSeconds=60, durationSeconds=60, completed=True, occurredAt=datetime.now(UTC).isoformat(), baseRevision=0)]), await db.get(User, user_id), db)
+            await sync_progress(
+                course_id,
+                ProgressSync(
+                    mutations=[
+                        dict(
+                            id=uuid.uuid4().hex,
+                            lessonId=lesson_id,
+                            kind="completion",
+                            positionSeconds=60,
+                            durationSeconds=60,
+                            completed=True,
+                            occurredAt=datetime.now(UTC).isoformat(),
+                            baseRevision=0,
+                        )
+                    ]
+                ),
+                await db.get(User, user_id),
+                db,
+            )
         assert denied.value.code == "SERVER_COMPLETION_REQUIRED"
-    body = Submission(attemptId=attempt_id, answers=[dict(questionId=question_id, type="trueFalse", selectedValue=True)])
+    body = Submission(
+        attemptId=attempt_id,
+        answers=[dict(questionId=question_id, type="trueFalse", selectedValue=True)],
+    )
     key = uuid.uuid4().hex
+
     async def send():
         async with factory() as db:
-            return await submit(assessment_id, attempt_id, body, await db.get(User, user_id), db, idempotency_key=key)
+            return await submit(
+                assessment_id,
+                attempt_id,
+                body,
+                await db.get(User, user_id),
+                db,
+                idempotency_key=key,
+            )
+
     results = await asyncio.gather(send(), send(), return_exceptions=True)
     accepted = [result for result in results if isinstance(result, dict)]
     assert accepted and accepted[0]["isPassed"] is True
     for result in results:
-        assert isinstance(result, dict) or isinstance(result, APIError) and result.code == "IDEMPOTENCY_IN_PROGRESS"
+        assert (
+            isinstance(result, dict)
+            or isinstance(result, APIError)
+            and result.code == "IDEMPOTENCY_IN_PROGRESS"
+        )
     assert await send() == accepted[0]
     async with factory() as db:
-        progress = await db.scalar(select(LessonProgress).where(LessonProgress.learner_id == user_id, LessonProgress.lesson_id == lesson_id))
+        progress = await db.scalar(
+            select(LessonProgress).where(
+                LessonProgress.learner_id == user_id, LessonProgress.lesson_id == lesson_id
+            )
+        )
         assert progress.completed is True

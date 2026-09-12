@@ -436,18 +436,34 @@ async def grade_submission(
                 .join(CourseModule)
                 .where(
                     CourseModule.course_id == assessment.course_id,
-                    or_(and_(Lesson.content_type == "quiz", Lesson.content_ref == assessment.id),
-                        Lesson.id.in_(select(LessonContentItem.lesson_id).where(LessonContentItem.assessment_id == assessment.id, LessonContentItem.status == Lifecycle.published))),
+                    or_(
+                        and_(Lesson.content_type == "quiz", Lesson.content_ref == assessment.id),
+                        Lesson.id.in_(
+                            select(LessonContentItem.lesson_id).where(
+                                LessonContentItem.assessment_id == assessment.id,
+                                LessonContentItem.status == Lifecycle.published,
+                            )
+                        ),
+                    ),
                 )
             )
         ).all()
         for lesson in linked_lessons:
             from .academic import required_quizzes_passed
+
             await db.flush()
             if not await required_quizzes_passed(db, learner_id, lesson.id):
                 continue
             # Mixed lessons require an explicit completion after studying other items.
-            if await db.scalar(select(LessonContentItem.id).where(LessonContentItem.lesson_id == lesson.id, LessonContentItem.status == Lifecycle.published, LessonContentItem.content_type != "quiz").limit(1)):
+            if await db.scalar(
+                select(LessonContentItem.id)
+                .where(
+                    LessonContentItem.lesson_id == lesson.id,
+                    LessonContentItem.status == Lifecycle.published,
+                    LessonContentItem.content_type != "quiz",
+                )
+                .limit(1)
+            ):
                 continue
             progress = await db.scalar(
                 select(LessonProgress)
@@ -458,7 +474,14 @@ async def grade_submission(
                 .with_for_update()
             )
             if progress is None:
-                progress = LessonProgress(learner_id=learner_id, lesson_id=lesson.id, duration_seconds=0, position_seconds=0, completed=False, revision=0)
+                progress = LessonProgress(
+                    learner_id=learner_id,
+                    lesson_id=lesson.id,
+                    duration_seconds=0,
+                    position_seconds=0,
+                    completed=False,
+                    revision=0,
+                )
                 db.add(progress)
             progress.completed = True
             progress.duration_seconds = lesson.duration_seconds
@@ -859,11 +882,29 @@ async def validate_course_for_publishing(db: AsyncSession, course_id: str) -> di
                 )
             else:
                 for l in m_lessons:
-                    has_items = await db.scalar(select(LessonContentItem.id).where(LessonContentItem.lesson_id == l.id).limit(1))
+                    has_items = await db.scalar(
+                        select(LessonContentItem.id)
+                        .where(LessonContentItem.lesson_id == l.id)
+                        .limit(1)
+                    )
                     if has_items or l.content_ref.startswith("lesson-shell:"):
-                        published_item = await db.scalar(select(LessonContentItem.id).where(LessonContentItem.lesson_id == l.id, LessonContentItem.status == Lifecycle.published).limit(1))
+                        published_item = await db.scalar(
+                            select(LessonContentItem.id)
+                            .where(
+                                LessonContentItem.lesson_id == l.id,
+                                LessonContentItem.status == Lifecycle.published,
+                            )
+                            .limit(1)
+                        )
                         if not published_item:
-                            errors.append({"code": "LESSON_CONTENT_UNPUBLISHED", "message": f"Lesson '{l.title}' needs published content.", "severity": "error", "field": f"lessons.{l.id}.contentItems"})
+                            errors.append(
+                                {
+                                    "code": "LESSON_CONTENT_UNPUBLISHED",
+                                    "message": f"Lesson '{l.title}' needs published content.",
+                                    "severity": "error",
+                                    "field": f"lessons.{l.id}.contentItems",
+                                }
+                            )
                     if not l.title or len(l.title.strip()) < 1:
                         errors.append(
                             {
@@ -959,6 +1000,7 @@ async def validate_course_for_publishing(db: AsyncSession, course_id: str) -> di
 
 async def get_cms_course_detail(db: AsyncSession, course_id: str) -> dict:
     from .academic import classification_json
+
     course = await db.get(Course, course_id)
     if not course:
         raise APIError(404, "NOT_FOUND", "Course not found.")

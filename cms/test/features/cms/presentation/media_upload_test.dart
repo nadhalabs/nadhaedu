@@ -109,14 +109,29 @@ void main() {
       expect(api.calls.length, 1);
     },
   );
-  testWidgets('saved cover shows a thumbnail and falls back on image failure', (tester) async {
-    await tester.pumpWidget(ProviderScope(child: MaterialApp(home: Scaffold(body:
-      MediaUpload(courseId: 'offering', posterUrl: 'https://invalid.example/cover.jpg', onReady: (_) {})))));
+  testWidgets('saved cover shows a thumbnail and falls back on image failure', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        child: MaterialApp(
+          home: Scaffold(
+            body: MediaUpload(
+              courseId: 'offering',
+              posterUrl: 'https://invalid.example/cover.jpg',
+              onReady: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
     final image = tester.widget<Image>(find.byType(Image));
-    expect((image.image as NetworkImage).url, 'https://invalid.example/cover.jpg');
+    expect(
+      (image.image as NetworkImage).url,
+      'https://invalid.example/cover.jpg',
+    );
     expect(image.errorBuilder, isNotNull);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
-
 }

@@ -14,7 +14,9 @@ from .security import decode_token
 DB = Annotated[AsyncSession, Depends(get_session)]
 
 
-async def optional_user(db: DB, authorization: Annotated[str | None, Header()] = None) -> User | None:
+async def optional_user(
+    db: DB, authorization: Annotated[str | None, Header()] = None
+) -> User | None:
     if not authorization:
         return None
     return await current_user(db, authorization)

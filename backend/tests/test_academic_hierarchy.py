@@ -418,8 +418,16 @@ async def test_ordered_content_and_legacy_compatibility(academic_env):
         await db.commit()
     assert not (await client.get(readiness, headers=headers["learner"])).json()["canComplete"]
     async with factory() as db:
-        db.add(VideoWatchProgress(learner_id="learner", media_asset_id="media", position_seconds=57,
-            furthest_seconds=57, completed=True, checkpoint_at=datetime.now(UTC)))
+        db.add(
+            VideoWatchProgress(
+                learner_id="learner",
+                media_asset_id="media",
+                position_seconds=57,
+                furthest_seconds=57,
+                completed=True,
+                checkpoint_at=datetime.now(UTC),
+            )
+        )
         await db.commit()
     assert (await client.get(readiness, headers=headers["learner"])).json()["canComplete"]
     archived = {**created[0], "contentType": "video", "position": 3, "status": "archived"}

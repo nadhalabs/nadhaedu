@@ -363,7 +363,9 @@ class _LessonContent extends ConsumerWidget {
                         (lesson.hasContentItems && lesson.contentItems.isEmpty)
                     ? null
                     : () async {
-                        if (lesson.contentItems.any((i) => i.type == 'quiz' || i.type == 'video')) {
+                        if (lesson.contentItems.any(
+                          (i) => i.type == 'quiz' || i.type == 'video',
+                        )) {
                           final result = await ref
                               .read(apiClientProvider)
                               .get(

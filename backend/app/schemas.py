@@ -460,7 +460,9 @@ class CmsLessonCreateIn(CamelModel):
     title: str = Field(min_length=1, max_length=200)
     duration_seconds: int = Field(default=0, ge=0)
     content_type: str = Field(default="video", max_length=30)
-    content_ref: str = Field(default_factory=lambda: f"lesson-shell:{uuid4()}", min_length=1, max_length=255)
+    content_ref: str = Field(
+        default_factory=lambda: f"lesson-shell:{uuid4()}", min_length=1, max_length=255
+    )
     is_preview: bool = False
     is_downloadable: bool = True
     policy_kind: str = "inherit"
