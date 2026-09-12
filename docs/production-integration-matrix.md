@@ -1,0 +1,16 @@
+# Production integration matrix
+
+| Flutter feature | Production repository | Remote adapter | Canonical backend contract | Auth | DTO/cache/error behavior | Development behavior |
+|---|---|---|---|---|---|---|
+| Authentication | `AuthRepositoryImpl` | `BackendAuthDataSource` | `/api/v1/auth/{register,login,me,refresh,logout,onboarding,password-reset/*,delete-account}` | Public login/register/reset/refresh; bearer lifecycle calls | `AuthSessionDto`; encrypted session storage; single-flight refresh; typed network/auth errors; temporary failures retain refresh material | `FoundationAuthDataSource` only when `AppEnvironment.development` |
+| Catalog/discovery | `CatalogRepositoryImpl` | `RemoteCatalogDataSource` | `/api/v1/home`, `/courses`, `/courses/by-ids`, `/categories`, `/bookmarks`, `/recently-viewed` | Public catalog; bearer learner collections | Explicit course/content mapping; opaque cursor, max 50; bounded stale repository cache; `ApiFailure`→catalog error mapping | Bounded deterministic catalog fixture |
+| Learning/progress | `LearningRepositoryImpl` | `RemoteLearningDataSource` | `/api/v1/courses/{id}/progress[/sync]`, `/playback/{assetId}` | Bearer | Primitive progress DTOs; durable bounded mutation outbox; batched/throttled sync; server revision reconciliation; playback denial is definitive | In-memory authority with entitlement-aware playback fixture |
+| Entitlements/access | `EntitlementRepositoryImpl` | `RemoteEntitlementDataSource` | `/api/v1/entitlements`, `/access-decisions/{type}/{id}` | Bearer | Typed entitlement/source mapping and server-issued `AccessDecision`; cached local evaluation is marked stale and used for UX fallback only; playback reauthorizes | Local evaluator and seeded grants |
+| Assessments | `AssessmentRepositoryImpl` | `RemoteAssessmentDataSource` | `/api/v1/assessments/{id}`, `/attempts`, `/summary`, `/submission` | Bearer | Safe questions; authoritative timestamps; idempotency header; typed transport failures | Server-like deterministic assessment fixture |
+| Certificates | `CertificateRepositoryImpl` | `RemoteCertificateDataSource` | `/api/v1/certificate-eligibility/{course}`, `/certificate-issuances`, `/certificates`, `/public/credentials/{id}` | Bearer except public verification | Exact Dart enum/DTO mapping; bounded cursor history; public lookup explicitly unauthenticated | Development-only `DEV-*` fixture credentials |
+
+## Fixture isolation audit
+
+Production and staging select remote adapters for the six core learner domains listed above. Additional commerce, push, and native-notification boundaries are separately fail-closed when their provider credentials or platform SDK wiring are unavailable. `production_adapter_isolation_test.dart` asserts the core provider graph for both environments. Staging/production startup fails before `runApp` if `API_BASE_URL` is absent or non-HTTPS. Development fixtures remain explicitly selected only by the development entry point.
+
+No production adapter trusts repository `learnerId` arguments as transport authority. Backend identity comes from the bearer session. Local access decisions may shape loading/locked UX during a network transition, but protected playback, assessment and certificate operations independently authorize on the backend.

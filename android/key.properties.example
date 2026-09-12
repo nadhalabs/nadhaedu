@@ -1,0 +1,4 @@
+storeFile=/absolute/path/to/owner-release-key.jks
+storePassword=REPLACE_IN_LOCAL_FILE
+keyAlias=OWNER_KEY_ALIAS
+keyPassword=REPLACE_IN_LOCAL_FILE

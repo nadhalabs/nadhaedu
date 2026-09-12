@@ -1,0 +1,27 @@
+services:
+  postgres:
+    image: postgres:16.4-alpine
+    environment:
+      POSTGRES_DB: learning_platform_staging
+      POSTGRES_USER: learning_platform
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets: [postgres_password]
+    volumes: [postgres_data:/var/lib/postgresql/data]
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server","--appendonly","yes","--requirepass","${REDIS_PASSWORD}"]
+    volumes: [redis_data:/data]
+  api:
+    build: ../../backend
+    env_file: .env.staging
+    depends_on: [postgres,redis]
+    ports: ["127.0.0.1:8080:8080"]
+  mailpit:
+    image: axllent/mailpit:v1.21
+    ports: ["127.0.0.1:8025:8025"]
+volumes:
+  postgres_data:
+  redis_data:
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password

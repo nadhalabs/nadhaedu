@@ -1,0 +1,35 @@
+# Backend contract matrix (Phase A audit)
+
+This matrix was produced from the Flutter data-source and domain contracts before backend implementation. Authenticated operations derive the learner from the bearer token; any `learnerId` argument in a Dart repository is local cache partitioning only and is never accepted as authority.
+
+| Flutter operation | Endpoint (compatibility alias) | Method/auth | Input | Success response | Typed errors | Idempotency / authoritative rule |
+|---|---|---|---|---|---|---|
+| Sign in/register | `/api/v1/auth/login`, `/register` | POST/public | email/password; displayName on registration | `AuthSessionDto` camelCase shape | VALIDATION, INVALID_CREDENTIALS, CONFLICT, RATE_LIMITED | Server hashes passwords and creates a revocable device session. |
+| Refresh/logout/current user | `/api/v1/auth/refresh`, `/logout`, `/me` | POST/refresh; POST+GET/bearer | refreshToken; allDevices | session / empty / identity | AUTHENTICATION_REQUIRED, SESSION_REVOKED, SESSION_EXPIRED | Refresh rotates the token; logout revokes one or all sessions. |
+| Password reset | `/api/v1/auth/password-reset/request`, `/confirm` | POST/public | email; email/code/newPassword | accepted / session | VALIDATION, EXPIRED_RESOURCE, RATE_LIMITED | Codes are hashed, expiring, one-use values; request does not enumerate accounts. |
+| Browse/search catalog | `/api/v1/courses` | GET/optional | search, categoryId, level, sort, cursor, pageSize≤50 | `{items,nextCursor,isFromCache:false}` | VALIDATION, INVALID_CURSOR | Keyset cursor, server-side filtering and stable `(publishedAt,id)` ordering. |
+| Course/categories/bookmarks | `/api/v1/courses/{id}`, `/categories`, `/bookmarks` | GET optional; bookmarks bearer | IDs/query; bookmark mutation | Flutter course/category shapes | NOT_FOUND, AUTHENTICATION_REQUIRED | Protected lesson payloads still require access checks; bookmark uniqueness is DB-enforced. |
+| Progress load/sync | `/api/v1/courses/{id}/progress`, `/progress/sync` | GET/POST bearer | bounded mutations with stable id, baseRevision, lessonId, position/duration/completed | `{progress,acknowledgedMutationIds}` | ACCESS_DENIED, INVALID_RESOURCE, VALIDATION | Mutation IDs are unique per learner. Position uses max-known position; completion is monotonic. Server derives aggregates. |
+| Playback authorization | `/api/v1/playback/{assetId}` | GET/bearer | asset ID | short-lived HLS source | ACCESS_DENIED, NOT_FOUND | Resolves asset→lesson→module→course and centrally evaluates access. |
+| Entitlements/access | `/api/v1/entitlements`, `/access-decisions/{type}/{id}` | GET/bearer | resource identity | typed entitlements / `AccessDecision` | AUTHENTICATION_REQUIRED, NOT_FOUND | Course→module→resource policy inheritance and active grants are evaluated centrally at request time. |
+| Fetch assessment | `/api/v1/assessments/{id}` (`/v1/...`) | GET/bearer | assessment ID | `{summary,questions,instructions,updatedAt}` | ACCESS_DENIED, NOT_FOUND, CONTENT_UNAVAILABLE | Learner-visible questions never include correctness or grading metadata. |
+| Attempt summary | `.../attempts/summary` | GET/bearer | assessment ID | exact `AssessmentAttemptSummary` shape | ACCESS_DENIED, NOT_FOUND | Only principal-owned attempts are returned. |
+| Start attempt | `.../attempts` | POST/bearer | no client attempt ID | `{attemptId,assessmentId,startedAt,serverNow,expiresAt,attemptNumber}` | ATTEMPT_LIMIT_REACHED, ACCESS_DENIED, CONTENT_UNAVAILABLE | Locks the learner/assessment attempt namespace; server clock and deadline are authoritative. |
+| Resume attempt | `.../attempts/{attemptId}` | GET/bearer | attempt ID | attempt timing/status plus safe assessment | NOT_FOUND (also used for cross-user IDs), ATTEMPT_EXPIRED | Server derives current state; device time is irrelevant. |
+| Submit assessment | `.../attempts/{attemptId}/submission` | POST/bearer + `Idempotency-Key` | attemptId and typed answers | exact `AssessmentResult` shape | IDEMPOTENCY_CONFLICT, ATTEMPT_EXPIRED, ATTEMPT_FINALIZED, INVALID_ANSWER | Unique `(learner,operation,key)` plus request fingerprint and stored response; attempt row lock; grading/progress are transactional. |
+| Certificate eligibility | `/api/v1/certificate-eligibility/{courseId}` (`/v1/...`) | GET/bearer | course ID | exact `CertificateEligibility` shape | ACCESS_DENIED, NOT_FOUND | Enrollment, primitive progress, required passes, policy and entitlement are evaluated server-side; fail closed. |
+| Issue certificate | `/api/v1/certificate-issuances` (`/v1/...`) | POST/bearer | `{courseId}` | exact `Certificate` shape | CERTIFICATE_INELIGIBLE, IDEMPOTENCY_CONFLICT | Active certificate uniqueness per learner/course; opaque secure credential ID; issuance audited. |
+| Certificate history/detail | `/api/v1/certificates`, `/{id}`, `/by-course/{courseId}` | GET/bearer | stable cursor, limit≤50 | `{items,nextCursor}` or certificate | INVALID_CURSOR, NOT_FOUND | Owner-bound reads; descending `(issueDate,id)` keyset. |
+| Public verification | `/api/v1/public/credentials/{credentialId}` (`/v1/...`) | GET/public | opaque credential ID | `{credentialId,isValid,verificationTimestamp,certificate,message}` | RATE_LIMITED (unknown is a normal response) | Returns a privacy-minimized public projection; revoked/unknown are distinguishable without account data. |
+| Revoke certificate | `/api/v1/admin/certificates/{id}/revocation` | POST/admin bearer | reason | revoked certificate | FORBIDDEN, NOT_FOUND, CONFLICT | Immediate persisted revocation and append-only audit record. |
+
+## Unsafe or inconsistent client assumptions found
+
+- The HTTP client currently collapses every Dio failure into `request_failed`, so feature adapters cannot distinguish authentication, entitlement, conflict, expiry, validation or rate limits. The backend returns typed errors now; Flutter should map the error envelope/status in a follow-up adapter patch.
+- Existing assessment/certificate adapters use `/v1`, while the requested professional namespace is `/api/v1`. Both are served; `/v1` is a compatibility alias and should be deprecated only after the clients migrate.
+- `fetchAssessment` exposes the questions before an attempt starts. The backend returns only safe question content, but higher-integrity assessments should fetch randomized questions as part of the attempt session. The compatibility endpoint remains safe but does not promise stable order.
+- `claimCertificate` has no idempotency header. Database uniqueness makes exact repeats safe; Flutter should later send `Idempotency-Key` for request-fingerprint replay semantics.
+- Dart passes `learnerId` and `learnerName` into repositories. The server ignores both as authority and uses the authenticated user/profile.
+- No remote auth/catalog/progress/entitlement adapter exists yet. Their server contracts are defined above and must be wired into Flutter before staging/production can use them.
+- The certificate verification DTO embeds the normal certificate DTO, including learner ID and metadata. The server emits an empty learner ID and allowlisted metadata publicly to avoid disclosing account identifiers.
+
