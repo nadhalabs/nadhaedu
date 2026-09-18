@@ -46,6 +46,7 @@ def policy_for(request: Request) -> Policy | None:
         path = "/api" + path
     direct = POLICIES.get((request.method, path))
     if direct:
+        request.state.rate_limit_route = path
         return direct
     if request.method == "POST" and path.endswith("/attempts"):
         return Policy("assessment-start", 10, 300)

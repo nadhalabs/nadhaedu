@@ -94,6 +94,9 @@ async def request_observability(request: Request, call_next):
     elapsed = time.perf_counter() - start
     route = request.scope.get("route")
     route_path = getattr(route, "path", "unmatched")
+    # Guards run before routing. This label comes from the fixed policy
+    # allowlist, never an arbitrary request path containing user identifiers.
+    route_path = getattr(request.state, "rate_limit_route", route_path)
     request.app.state.metrics.observe_request(
         request.method, route_path, response.status_code, elapsed
     )
@@ -106,6 +109,8 @@ async def request_observability(request: Request, call_next):
                 "method": request.method,
                 "route": route_path,
                 "status": response.status_code,
+                "error_code": getattr(request.state, "error_code", None),
+                "error_cause_type": getattr(request.state, "error_cause_type", None),
                 "latency_ms": round(elapsed * 1000, 2),
             }
         },

@@ -285,3 +285,133 @@ async def test_notification_and_integrations_do_not_claim_delivery_or_leak_secre
         assert integrations.status_code == 200
         assert "development-only-change-me" not in payload
         assert "private_key" not in payload and "api_key" not in payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [None, True, False])
+async def test_registration_flag_and_production_restart(database, monkeypatch, value):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, Mock
+
+    from test_hardening import production_settings
+
+    from app import main
+    from app.models import PlatformSetting
+    from app.rate_limit import DistributedRateLimiter
+
+    async with database() as db:
+        db.add(PlatformSetting(key="maintenance_mode", value=True, description="Test"))
+        await db.commit()
+    if value is not None:
+        async with database() as db:
+            db.add(PlatformSetting(key="registrations_enabled", value=value, description="Test"))
+            await db.commit()
+    configured = production_settings()
+    redis = SimpleNamespace(eval=AsyncMock(return_value=[1, 900]), aclose=AsyncMock())
+    factory = Mock(kw={"bind": SimpleNamespace(dispose=AsyncMock())})
+    monkeypatch.setattr(main, "settings", configured)
+    monkeypatch.setattr(main.Redis, "from_url", Mock(return_value=redis))
+    monkeypatch.setattr(main, "session_factory", Mock(return_value=factory))
+    # Lifespan replaces these; restore them for other tests.
+    for name in (
+        "settings",
+        "logger",
+        "metrics",
+        "redis",
+        "rate_limiter",
+        "password_reset_delivery",
+    ):
+        monkeypatch.setattr(app.state, name, getattr(app.state, name))
+    for _ in range(2):
+        async with main.lifespan(app):
+            assert isinstance(app.state.rate_limiter, DistributedRateLimiter)
+            async with AsyncClient(
+                transport=ASGITransport(app=app), base_url="https://api.example.com"
+            ) as client:
+                listing = await client.get(
+                    "/api/v1/admin/super/settings", headers=headers("owner", UserRole.super_admin)
+                )
+                setting = next(
+                    x for x in listing.json()["items"] if x["key"] == "registrations_enabled"
+                )
+                assert setting["value"] is (True if value is None else value)
+        async with database() as db:
+            stored = await db.get(PlatformSetting, "registrations_enabled")
+            if value is None:
+                assert stored is None  # Neither startup nor CMS reads seed overrides.
+            else:
+                assert stored.value is value and stored.version == 1
+    logger = Mock()
+    monkeypatch.setattr(app.state, "logger", logger)
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://api.example.com"
+    ) as client:
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"email": "new@example.com", "password": "NewPass123!", "displayName": "New"},
+        )
+    assert response.status_code == (503 if value is False else 201)
+    if value is False:
+        assert response.json()["error"]["code"] == "REGISTRATIONS_DISABLED"
+        fields = logger.info.call_args.kwargs["extra"]["fields"]
+        assert fields["route"] == "/api/v1/auth/register"
+        assert fields["error_code"] == "REGISTRATIONS_DISABLED"
+    async with database() as db:
+        user = await db.scalar(select(User).where(User.email == "new@example.com"))
+        assert (user is not None) is (value is not False)
+
+
+@pytest.mark.asyncio
+async def test_enable_registration_preserves_versions_and_audit(database):
+    from app.models import PlatformSetting
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for version, value in enumerate([False, True]):
+            response = await client.put(
+                "/api/v1/admin/super/settings/registrations_enabled",
+                headers=headers("owner", UserRole.super_admin),
+                json={
+                    "value": value,
+                    "expectedVersion": version,
+                    "reason": "Reviewed registration control",
+                },
+            )
+            assert response.status_code == 200
+            assert response.json()["version"] == version + 1
+        response = await client.post(
+            "/api/v1/auth/register",
+            json={"email": "new@example.com", "password": "NewPass123!", "displayName": "New"},
+        )
+        assert response.status_code == 201
+    async with database() as db:
+        setting = await db.get(PlatformSetting, "registrations_enabled")
+        assert setting.value is True and setting.version == 2 and setting.updated_by == "owner"
+        events = (
+            await db.scalars(
+                select(AuditEvent)
+                .where(AuditEvent.subject_id == "registrations_enabled")
+                .order_by(AuditEvent.occurred_at)
+            )
+        ).all()
+        assert len(events) == 2
+        assert all(event.actor_id == "owner" for event in events)
+        assert events[-1].data["metadata"]["previousState"] is False
+        assert events[-1].data["metadata"]["newState"] is True
+        assert events[-1].data["metadata"]["version"] == 2
+
+
+@pytest.mark.asyncio
+async def test_production_seed_refuses_before_database_access(monkeypatch):
+    from unittest.mock import Mock
+
+    from test_hardening import production_settings
+
+    import app.seed_staging as seed
+
+    monkeypatch.setattr(seed, "get_settings", production_settings)
+    factory = Mock()
+    monkeypatch.setattr(seed, "session_factory", factory)
+    monkeypatch.setenv("ALLOW_STAGING_SEED", "true")
+    with pytest.raises(RuntimeError, match="Staging seed is disabled"):
+        await seed.seed()
+    factory.assert_not_called()

@@ -10,6 +10,9 @@ class APIError(Exception):
 
 
 async def api_error_handler(request: Request, exc: APIError) -> JSONResponse:
+    request.state.error_code = exc.code
+    if exc.__cause__ is not None:
+        request.state.error_cause_type = type(exc.__cause__).__name__
     request_id = getattr(request.state, "request_id", str(uuid.uuid4()))
     error = {"code": exc.code, "message": exc.message, "requestId": request_id}
     if exc.field:

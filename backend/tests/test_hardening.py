@@ -153,3 +153,60 @@ def test_crash_transport_removes_personal_data_and_exception_values():
     assert "secret" not in str(result)
     assert "child@example" not in str(result)
     assert result["exception"]["values"][0]["stacktrace"]["frames"][0]["filename"] == "app.py"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["/api/v1", "/v1"])
+@pytest.mark.parametrize("failure", ["offline", "exhausted", "healthy"])
+async def test_production_registration_guard_logs_actual_route_and_reason(
+    monkeypatch, prefix, failure
+):
+    from unittest.mock import AsyncMock, Mock
+
+    from app import main
+    from app.db import get_session
+
+    redis = SimpleNamespace(eval=AsyncMock(return_value=[6 if failure == "exhausted" else 1, 900]))
+    if failure == "offline":
+        redis.eval.side_effect = RedisConnectionError("secret Redis connection details")
+    configured = production_settings()
+    logger = Mock()
+    monkeypatch.setattr(main, "settings", configured)
+    monkeypatch.setattr(main.app.state, "settings", configured)
+    monkeypatch.setattr(main.app.state, "logger", logger)
+    monkeypatch.setattr(main.app.state, "metrics", Metrics())
+    monkeypatch.setattr(main.app.state, "rate_limiter", DistributedRateLimiter(redis, configured))
+    db_calls = []
+
+    async def database():
+        db_calls.append(True)
+        yield None
+
+    main.app.dependency_overrides[get_session] = database
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=main.app), base_url="https://api.example.com"
+        ) as client:
+            # Invalid body cannot create a user, but healthy Redis must reach validation.
+            response = await client.post(
+                prefix + "/auth/register", json={}, headers={"X-Request-ID": "registration-probe"}
+            )
+        expected_status, expected_code = {
+            "offline": (503, "RATE_LIMIT_UNAVAILABLE"),
+            "exhausted": (429, "RATE_LIMITED"),
+            "healthy": (422, "VALIDATION_FAILED"),
+        }[failure]
+        assert response.status_code == expected_status
+        assert response.json()["error"]["code"] == expected_code
+        assert bool(db_calls) is (failure == "healthy")
+        fields = logger.info.call_args.kwargs["extra"]["fields"]
+        assert fields["route"] == "/api/v1/auth/register"
+        assert fields["error_code"] == expected_code
+        assert fields["request_id"] == "registration-probe"
+        assert "secret Redis" not in str(logger.mock_calls)
+        if failure == "offline":
+            assert fields["error_cause_type"] == "ConnectionError"
+        if failure == "exhausted":
+            assert response.headers["Retry-After"] == "900"
+    finally:
+        main.app.dependency_overrides.pop(get_session, None)
