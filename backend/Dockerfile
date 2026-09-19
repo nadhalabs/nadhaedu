@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir .
 COPY alembic ./alembic
 COPY alembic.ini ./
 USER 65532:65532
-CMD ["uvicorn","app.main:app","--host","0.0.0.0","--port","8080","--proxy-headers"]
+CMD ["sh","-c","alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8080 --proxy-headers"]
