@@ -231,7 +231,9 @@ async def test_cms_dashboard_admin_allowed_with_real_metrics():
         assert data["recentActivity"][0]["actorEmail"] == "admin@example.com"
 
         # System readiness
-        assert data["systemReadiness"]["isReady"] is True
+        assert data["systemReadiness"]["isReady"] is False
+        assert data["systemReadiness"]["cache"] == "unverified"
+        assert data["systemReadiness"]["migrationRevision"] == "unknown"
         assert len(data["systemReadiness"]["warnings"]) > 0
 
 

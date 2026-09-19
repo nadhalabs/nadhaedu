@@ -4,7 +4,7 @@ FastAPI/PostgreSQL authority for identity, catalog, learning progress, entitleme
 
 ## Architecture
 
-HTTP schemas live in `app/api.py` and `app/schemas.py`; security/session boundaries are in `app/security.py` and `app/dependencies.py`; central access, grading, eligibility, cursor and projection rules live in `app/services.py`; persistence invariants live in `app/models.py`. PostgreSQL is the correctness authority. Redis is not required.
+HTTP schemas live in `app/api.py` and `app/schemas.py`; security/session boundaries are in `app/security.py` and `app/dependencies.py`; central access, grading, eligibility, cursor and projection rules live in `app/services.py`; persistence invariants live in `app/models.py`. PostgreSQL is the correctness authority and is always required. Redis is required by default; the single-process pilot may explicitly set `LEARNING_PLATFORM_REDIS_REQUIRED=false` to use bounded local rate limiting during Redis outages. See [pilot configuration and trade-offs](../docs/optional-redis-pilot.md).
 
 The effective access policy is resolved Course → Module → Lesson/resource. Unavailable content fails closed; free/preview policies short-circuit; otherwise currently usable grants are filtered by scope and resolved with deterministic precedence. Every protected endpoint invokes this service independently.
 

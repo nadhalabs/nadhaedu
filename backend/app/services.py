@@ -5,7 +5,7 @@ import json
 import math
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, or_, and_
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .errors import APIError
@@ -44,6 +44,7 @@ from .models import (
     User,
     UserRole,
 )
+from .readiness import schema_status
 
 
 def now() -> datetime:
@@ -755,16 +756,21 @@ async def get_cms_dashboard_data(db: AsyncSession) -> dict:
         for e, u_email, u_name in events_rows
     ]
 
+    schema = await schema_status(db)
     system_readiness = {
         "database": "connected",
-        "cache": "connected",
-        "migrationRevision": "0006_r3_query_indexes",
-        "isReady": True,
+        "cache": "unverified",
+        "migrationRevision": schema["currentMigrationHead"] or "unknown",
+        "isReady": False,
         "warnings": [
+            {
+                "code": "RUNTIME_READINESS_UNVERIFIED",
+                "message": "Use /health/ready for live database, migration and Redis readiness.",
+            },
             {
                 "code": "PROVIDER_MOCK_MODE",
                 "message": "Apple, Google and Stripe live billing are running in fail-closed / mock verification mode.",
-            }
+            },
         ],
     }
 

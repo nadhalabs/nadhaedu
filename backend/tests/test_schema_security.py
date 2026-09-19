@@ -54,7 +54,11 @@ def test_initial_migration_uses_frozen_schema_snapshot():
 
 
 def test_readiness_requires_the_exact_latest_migration_revision():
+    from alembic.script import ScriptDirectory
+
+    from app.readiness import expected_migration_head
+
     backend_root = Path(__file__).resolve().parents[1]
-    readiness_source = (backend_root / "app/main.py").read_text()
-    assert 'revision != "0009_media_v1"' in readiness_source
-    assert 'revision not in {"0005_p0_integrity"' not in readiness_source
+    heads = ScriptDirectory(str(backend_root / "alembic")).get_heads()
+    assert len(heads) == 1
+    assert expected_migration_head() == heads[0]

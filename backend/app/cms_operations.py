@@ -1,9 +1,8 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import Field
-from sqlalchemy import func, or_, select, text, update
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import func, or_, select, update
 
 from .config import get_settings
 from .dependencies import DB, AdminPrincipal, SuperAdminPrincipal, SupportPrincipal
@@ -33,6 +32,7 @@ from .models import (
     User,
     UserRole,
 )
+from .readiness import schema_status
 from .schemas import CamelModel
 from .services import iso, log_audit_event, now
 
@@ -836,19 +836,18 @@ async def integrations(user: SuperAdminPrincipal):
 
 
 @router.get("/super/readiness")
-async def system_readiness(user: SuperAdminPrincipal, db: DB):
+async def system_readiness(request: Request, user: SuperAdminPrincipal, db: DB):
     revision = await db.scalar(select(func.count()).select_from(User))
-    try:
-        migration = await db.scalar(text("SELECT version_num FROM alembic_version"))
-    except SQLAlchemyError:
-        migration = None
+    schema = await schema_status(db)
+    redis_ready = await request.app.state.rate_limiter.redis_ready()
+    required = request.app.state.settings.redis_required
     return {
         "applicationVersion": "1.0.0",
-        "currentMigrationHead": migration,
-        "requiredMigrationHead": "0008_academic_hierarchy",
-        "schemaReady": migration == "0008_academic_hierarchy",
+        **schema,
         "databaseStatus": "healthy",
         "userRecordCount": revision,
-        "redisStatus": "unverified",
-        "note": "Public /health/ready performs the authoritative database, exact-head, and Redis checks.",
+        "redisStatus": "healthy" if redis_ready else "degraded",
+        "redisRequired": required,
+        "isReady": schema["schemaReady"] and (redis_ready or not required),
+        "note": "Public /health/ready is the traffic readiness endpoint.",
     }

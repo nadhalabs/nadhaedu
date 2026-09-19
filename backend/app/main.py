@@ -9,22 +9,22 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from redis.asyncio import Redis
-from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.exceptions import HTTPException
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
-from .api import router
 from .academic import router as academic_router
-from .media_workflow import router as media_workflow_router
+from .api import router
 from .cms_operations import router as cms_operations_router
 from .config import get_settings
 from .db import session_factory
 from .delivery import SMTPPasswordResetDelivery
 from .errors import APIError, api_error_handler, http_error_handler, validation_error_handler
+from .media_workflow import router as media_workflow_router
 from .observability import Metrics, configure_logging, request_observability, scrub_error_event
 from .rate_limit import DistributedRateLimiter, policy_for
+from .readiness import schema_status
 
 settings = get_settings()
 
@@ -134,13 +134,15 @@ async def readiness(request: Request):
         async with asyncio.timeout(5):
             async with session_factory()() as db:
                 await db.execute(text("SELECT 1"))
-                revision = await db.scalar(text("SELECT version_num FROM alembic_version"))
-            if revision != "0009_media_v1":
+                schema = await schema_status(db)
+            if not schema["schemaReady"]:
                 raise RuntimeError("migration mismatch")
-            await request.app.state.redis.ping()
-    except (SQLAlchemyError, RedisError, RuntimeError, TimeoutError):
+    except (SQLAlchemyError, RuntimeError, TimeoutError):
         raise APIError(503, "NOT_READY", "The service is not ready to receive traffic.")
-    return {"status": "ready"}
+    redis_ready = await request.app.state.rate_limiter.redis_ready()
+    if not redis_ready and request.app.state.settings.redis_required:
+        raise APIError(503, "NOT_READY", "The service is not ready to receive traffic.")
+    return {"status": "ready", "redisStatus": "healthy" if redis_ready else "degraded"}
 
 
 @app.get("/metrics", include_in_schema=False)

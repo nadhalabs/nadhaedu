@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     environment: str = "development"
     allowed_hosts: str = "localhost,127.0.0.1,testserver"
+    redis_required: bool = True
     redis_url: str = "redis://localhost:6379/0"
     redis_namespace: str = "learning-platform:development"
     media_signing_secret: str = "development-media-secret-change-before-deploying"

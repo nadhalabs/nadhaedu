@@ -69,17 +69,17 @@ class CmsSystemHealthScreen extends ConsumerWidget {
                             isHealthy: readiness?.database == 'connected',
                             icon: Icons.storage_outlined,
                             extra:
-                                'Revision: ${readiness?.migrationRevision ?? "0006_r3_query_indexes"}',
+                                'Revision: ${readiness?.migrationRevision ?? "unknown"}',
                           ),
                           _buildSubsystemCard(
                             title: 'Distributed Cache & Rate Limiting',
-                            description: 'Redis token-bucket rate limiter',
+                            description: 'Redis fixed-window rate limiter',
                             status: readiness?.cache == 'connected'
                                 ? 'Active'
                                 : 'Checking',
                             isHealthy: readiness?.cache == 'connected',
                             icon: Icons.memory,
-                            extra: 'Cluster namespace active',
+                            extra: 'See System Readiness for live status',
                           ),
                           _buildSubsystemCard(
                             title: 'Media CDN & Token Origin',
